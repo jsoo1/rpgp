@@ -1,6 +1,5 @@
 use std::{fmt, marker::PhantomData};
 
-use chrono::{DateTime, Utc};
 use digest::{typenum::Unsigned, OutputSizeUser};
 use ecdsa::{
     elliptic_curve::{array::ArraySize, CurveArithmetic},
@@ -15,10 +14,9 @@ use crate::{
     bail,
     crypto::{hash::HashAlgorithm, public_key::PublicKeyAlgorithm},
     errors::Result,
-    packet::PublicKey,
     types::{
         EcdsaPublicParams, EskType, Fingerprint, KeyId, KeyVersion, Mpi, PkeskBytes,
-        PublicKeyTrait, PublicParams, SecretKeyTrait, SignatureBytes, Version,
+        PublicKeyTrait, PublicParams, SecretKeyTrait, SignatureBytes,
     },
 };
 
@@ -52,29 +50,14 @@ impl PgpEcdsaPublicKey for p256::ecdsa::VerifyingKey {
 /// [`signature::Signer`] backed signer for PGP.
 pub struct EcdsaSigner<T, C> {
     inner: T,
-    public_key: PublicKey,
     _signature: PhantomData<C>,
 }
 
-impl<C, T> EcdsaSigner<T, C>
-where
-    T: Keypair,
-    T::VerifyingKey: PgpPublicKey,
-{
+impl<C, T> EcdsaSigner<T, C> {
     /// Create a new signer with a given public key
-    pub fn new(inner: T, created_at: DateTime<Utc>) -> Result<Self> {
-        let public_key = PublicKey::new(
-            Version::New,
-            KeyVersion::V4,
-            <T as Keypair>::VerifyingKey::PGP_ALGORITHM,
-            created_at,
-            None,
-            inner.verifying_key().pgp_parameters(),
-        )?;
-
+    pub fn new(inner: T) -> Result<Self> {
         Ok(Self {
             inner,
-            public_key,
             _signature: PhantomData,
         })
     }
@@ -123,9 +106,7 @@ where
 
 impl<C, T> fmt::Debug for EcdsaSigner<T, C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("EcdsaSigner")
-            .field("public_key", &self.public_key)
-            .finish()
+        f.debug_struct("EcdsaSigner").finish()
     }
 }
 
@@ -133,10 +114,10 @@ impl<C, T> SecretKeyTrait for EcdsaSigner<T, C>
 where
     C: PrimeCurve + DigestPrimitive,
     SignatureSize<C>: ArraySize,
-    T: PrehashSigner<ecdsa::Signature<C>>,
+    T: PrehashSigner<ecdsa::Signature<C>> + PublicKeyTrait,
     C::Digest: PgpHash,
 {
-    type PublicKey = PublicKey;
+    type PublicKey = ();
     type Unlocked = Self;
 
     fn unlock<F, G, Tr>(&self, _pw: F, work: G) -> Result<Tr>
@@ -165,23 +146,20 @@ where
         Ok(SignatureBytes::Mpis(mpis))
     }
 
-    fn public_key(&self) -> Self::PublicKey {
-        self.public_key.clone()
-    }
-
-    fn hash_alg(&self) -> HashAlgorithm {
-        C::Digest::HASH_ALGORITHM
-    }
+    fn public_key(&self) -> Self::PublicKey {}
 }
 
-impl<C, T> PublicKeyTrait for EcdsaSigner<T, C> {
+impl<C, T> PublicKeyTrait for EcdsaSigner<T, C>
+where
+    T: PublicKeyTrait,
+{
     fn verify_signature(
         &self,
         hash: HashAlgorithm,
         data: &[u8],
         sig: &SignatureBytes,
     ) -> Result<()> {
-        self.public_key.verify_signature(hash, data, sig)
+        self.inner.verify_signature(hash, data, sig)
     }
 
     fn encrypt<R: CryptoRng + Rng>(
@@ -194,38 +172,38 @@ impl<C, T> PublicKeyTrait for EcdsaSigner<T, C> {
     }
 
     fn serialize_for_hashing(&self, writer: &mut impl std::io::Write) -> Result<()> {
-        self.public_key.serialize_for_hashing(writer)
+        self.inner.serialize_for_hashing(writer)
     }
 
     fn version(&self) -> KeyVersion {
-        self.public_key.version()
+        self.inner.version()
     }
 
     fn fingerprint(&self) -> Fingerprint {
-        self.public_key.fingerprint()
+        self.inner.fingerprint()
     }
 
     fn key_id(&self) -> KeyId {
-        self.public_key.key_id()
+        self.inner.key_id()
     }
 
     fn algorithm(&self) -> PublicKeyAlgorithm {
-        self.public_key.algorithm()
+        self.inner.algorithm()
     }
 
     fn created_at(&self) -> &chrono::DateTime<chrono::Utc> {
-        self.public_key.created_at()
+        self.inner.created_at()
     }
 
     fn expiration(&self) -> Option<u16> {
-        self.public_key.expiration()
+        self.inner.expiration()
     }
 
     fn public_params(&self) -> &PublicParams {
-        self.public_key.public_params()
+        self.inner.public_params()
     }
 
     fn is_encryption_key(&self) -> bool {
-        false
+        self.inner.is_encryption_key()
     }
 }

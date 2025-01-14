@@ -12,6 +12,8 @@ use crate::{
     bail,
     crypto::{hash::HashAlgorithm, public_key::PublicKeyAlgorithm},
     errors::Result,
+    packet::PacketTrait,
+    ser::Serialize,
     types::{
         EskType, Fingerprint, KeyId, KeyVersion, Mpi, PkeskBytes, PublicKeyTrait, PublicParams,
         SecretKeyTrait, SignatureBytes,
@@ -175,5 +177,27 @@ where
 
     fn public_params(&self) -> &PublicParams {
         self.inner.public_params()
+    }
+}
+
+impl<T, D> PacketTrait for RsaSigner<T, D>
+where
+    T: PacketTrait,
+{
+    fn packet_version(&self) -> crate::types::Version {
+        self.inner.packet_version()
+    }
+
+    fn tag(&self) -> crate::types::Tag {
+        self.inner.tag()
+    }
+}
+
+impl<T, D> Serialize for RsaSigner<T, D>
+where
+    T: Serialize,
+{
+    fn to_writer<W: std::io::Write>(&self, w: &mut W) -> Result<()> {
+        self.inner.to_writer(w)
     }
 }
